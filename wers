@@ -1,0 +1,1053 @@
+package com.ford.pd.bom.ui.cmf.panels;
+
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Date;
+import java.util.IntSummaryStatistics;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import com.ford.fblwasclient.connect.FBLServicesApi;
+import com.ford.fblwasclient.read.model.FB4Message;
+import com.ford.it.logging.ILogger;
+import com.ford.it.logging.Level;
+import com.ford.it.logging.LogFactory;
+import com.ford.it.util.DateTimeConversionUtil;
+import com.ford.pd.bom.business.service.impl.PADBServiceImpl;
+import com.ford.pd.bom.clientcahe.datarefresher.FB4EngineeringCommodityDataRefresher;
+import com.ford.pd.bom.clientcahe.datarefresher.FB4NonProductSetupHistoryDataRefresher;
+import com.ford.pd.bom.common.cmf.util.CmfConstants;
+import com.ford.pd.bom.common.exception.BomInFedeConsumerException;
+import com.ford.pd.bom.common.metrics.PerformanceMetricsContext;
+import com.ford.pd.bom.common.tc.FB4CRActivityLog;
+import com.ford.pd.bom.common.tc.FB4EngineeringCommodity;
+import com.ford.pd.bom.common.tc.FB4PMT;
+import com.ford.pd.bom.common.util.BomBaseUtil;
+import com.ford.pd.bom.common.util.FB4Constants;
+import com.ford.pd.bom.domain.data.manager.FB4BOMPrgIndependentDataHolder;
+import com.ford.pd.bom.ui.cmf.model.FB4EngineeringCommodityModel;
+import com.ford.pd.bom.ui.common.controls.TableFilterWrapper;
+import com.ford.pd.bom.ui.common.dialog.FB4Dialog;
+import com.ford.pd.bom.ui.common.panels.FB4Panel;
+import com.ford.pd.bom.ui.common.services.EngineeringCommodityResponsibilityService;
+import com.ford.pd.bom.ui.common.services.EngineeringCommodityResponsibilityServiceImpl;
+import com.ford.pd.bom.ui.common.services.EngineeringCommodityService;
+import com.ford.pd.bom.ui.common.services.EngineeringCommodityServiceImpl;
+import com.ford.pd.bom.ui.constants.UIConstants;
+import com.ford.pd.bom.ui.panels.FB4PAFAssignmentHistoryPanel;
+import com.ford.pd.bom.ui.security.ScreenConstants;
+import com.ford.pd.bom.ui.security.ScreenConstants.ACCESS_LEVEL;
+import com.ford.pd.bom.ui.security.UserSecurityAccess;
+import com.ford.pd.bom.ui.session.BOMSession;
+import com.ford.pd.bom.ui.utils.ExportToExcelSrvc;
+import com.ford.pd.bom.ui.utils.NonProductHistoryUtil;
+import com.ford.pd.bom.ui.wips.service.impl.WIPSCostSyncService;
+import com.google.common.base.Strings;
+
+import javafx.application.Platform;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.property.StringProperty;
+import javafx.beans.value.ChangeListener;
+import javafx.beans.value.ObservableValue;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
+import javafx.fxml.FXML;
+import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
+import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.ContentDisplay;
+import javafx.scene.control.Hyperlink;
+import javafx.scene.control.Separator;
+import javafx.scene.control.TableCell;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableColumn.CellDataFeatures;
+import javafx.scene.control.TableView;
+import javafx.scene.control.TextField;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.util.Callback;
+
+public class ManageEngineeringCommodityPanel extends FB4Panel {
+    private static final String CLASS_NAME = ManageEngineeringCommodityPanel.class.getName();
+    private static final ILogger log =
+            LogFactory.getInstance(LogFactory.LOG4J).getLogger(CLASS_NAME);
+    private static String METHOD_NAME = null;
+
+    private BorderPane borderPane;
+
+    private BOMSession session;
+
+    @FXML
+    private Hyperlink addEngineeringCommodity;
+
+    @FXML
+    private Hyperlink addEngineeringCommHistory;
+
+    @FXML
+    private Hyperlink exportToExcel;
+
+    @FXML
+    private Button wips;
+
+    @FXML
+    private TableView<FB4EngineeringCommodityModel> engineeringCommodityManagementTable;
+
+    public boolean addChk = false;
+
+    public List<String> pmtDataList = new ArrayList<String>();
+
+    public List<String> pmtComboboxDataList = new ArrayList<String>();
+
+    public List<String> statusList = new ArrayList<String>();
+
+    final TableColumn<FB4EngineeringCommodityModel, String> actionColumn =
+            new TableColumn<FB4EngineeringCommodityModel, String>(
+                    "Actions");
+
+    final TableColumn<FB4EngineeringCommodityModel, String> engineeringCommodityColumn =
+            new TableColumn<FB4EngineeringCommodityModel, String>(
+                    "Engineering Commodity");
+
+    final TableColumn<FB4EngineeringCommodityModel, String> pmtColumn =
+            new TableColumn<FB4EngineeringCommodityModel, String>(
+                    "PMT");
+
+    final TableColumn<FB4EngineeringCommodityModel, String> createdColumn =
+            new TableColumn<FB4EngineeringCommodityModel, String>(
+                    "Created Date");
+
+    final TableColumn<FB4EngineeringCommodityModel, String> statusColumn =
+            new TableColumn<FB4EngineeringCommodityModel, String>(
+                    "Status");
+
+    final PADBServiceImpl padbImpl = new PADBServiceImpl();
+
+    EngineeringCommodityService engineeringCommodityService =
+            new EngineeringCommodityServiceImpl();
+
+    private FB4EngineeringCommodityModel rowBeforeEditing = null;
+
+    private boolean editMode = false;
+
+    ObservableList<FB4EngineeringCommodityModel> dataInTable;
+
+    TableFilterWrapper<FB4EngineeringCommodityModel> tableFilter = null;
+
+    /**
+     * Construct a ManageEngineeringCommodityPanel instance
+     *
+     * @param fxmlFileName
+     */
+    public ManageEngineeringCommodityPanel(final BOMSession session) {
+        super(UIConstants.FXML_CMF_BASE + "ManageEngineeringCommodity.fxml");
+        this.session = session;
+        userAccessLevel = UserSecurityAccess.getInstance()
+                .getUserAccessOnScreen(
+                        ScreenConstants.BC_NON_PRODUCT_BOM_STANDARDS_MANAGE_ENGINEERING_COMMODITY);
+        init();
+        validateSecurityAccess();
+    }
+
+    private void init() {
+        addEngineeringCommHistory.setOnAction(event -> {
+            borderPane = (BorderPane)getScene().lookup("#bsBorderPane");
+            borderPane.setCenter(new FB4PAFAssignmentHistoryPanel(session, null, null, null));
+        });
+        loadPmtList();
+        loadStatusList();
+
+        setTableViewColumns();
+        this.engineeringCommodityManagementTable.setEditable(true);
+        setTableViewData();
+
+        this.exportToExcel.setOnAction((new EventHandler<ActionEvent>() {
+            @Override
+            public void handle(final ActionEvent event) {
+                export(event);
+            }
+        }));
+
+        this.wips.setOnAction(event -> {
+            final WIPSCostSyncService wipsCostSyncService = new WIPSCostSyncService();
+            wipsCostSyncService.startcostSyncProcess();
+            FB4Dialog.showMessage(wips, "Success Message", CmfConstants.SAVE_SUCCESS_MSG);
+        });
+    }
+
+    private void loadPmtList() {
+        List<FB4PMT> pmtList = new ArrayList<FB4PMT>();
+        pmtList = padbImpl.getPMTfromPADB();
+        pmtDataList.add("--Select--");
+        // US344735--Refactoring to restrict PMT 0
+        pmtComboboxDataList.add("--Select--");
+        for (final FB4PMT pmt : pmtList) {
+            if (null != pmt.getpMTCode() && pmt.getpMTCode().endsWith("00")) {
+                String pmtMain = pmt.getpMTCode().substring(0, 1);
+                final String pmtName = pmt.getpMTName();
+                pmtMain = "PMT" + pmtMain + " - " + pmtName;
+                if (!pmtComboboxDataList.contains(pmtMain) && (!pmt.getpMTCode().substring(0, 1).equalsIgnoreCase("0"))) {
+                    pmtComboboxDataList.add(pmtMain);
+                }
+                if (!pmtDataList.contains(pmtMain))
+                    pmtDataList.add(pmtMain);
+            }
+        }
+
+        Collections.sort(pmtDataList);
+    }
+
+    private void loadStatusList() {
+        this.statusList.add(CmfConstants.ACTIVE);
+        this.statusList.add(CmfConstants.INACTIVE);
+    }
+
+    public void setTableViewData() {
+        this.dataInTable = FXCollections.observableArrayList(getCommodityModelObjects());
+        this.engineeringCommodityManagementTable.setItems(this.dataInTable);
+        tableFilter.setMasterData(this.dataInTable);
+        tableFilter.applyFilter();
+
+    }
+
+    public void refreshData() {
+        // To display no of rows of results from the screen
+        // This show results might be called from diff panels
+        Platform.runLater(new Runnable() {
+            @Override
+            public void run() {
+                if (ManageEngineeringCommodityPanel.this.session != null
+                    && null != ManageEngineeringCommodityPanel.this.session.getStatusBar().getShowingRows()) {
+                    ManageEngineeringCommodityPanel.this.session.getStatusBar().getShowingRows().setText(
+                            "Showing "
+                                                                                                         + ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                                                                                                 .getItems().size()
+                                                                                                         + " Rows");
+                    ManageEngineeringCommodityPanel.this.session.getStatusBar().getShowingRows().setVisible(true);
+                }
+            }
+        });
+    }
+
+    /**
+     * DE38326: Changes This method has been modified to set the ecId on the model objects
+     */
+    private List<FB4EngineeringCommodityModel> getCommodityModelObjects() {
+        final List<FB4EngineeringCommodity> engineeringCommodityList =
+                engineeringCommodityService
+                        .getEngineeringCommodities();
+        List<FB4EngineeringCommodityModel> engineeringCommodityModelValues =
+                new ArrayList<>();
+        if (engineeringCommodityList != null && engineeringCommodityList.size() > 0) {
+            for (final FB4EngineeringCommodity enggCommValue : engineeringCommodityList) {
+                final FB4EngineeringCommodityModel fb4EngineeringCommodityModel =
+                        new FB4EngineeringCommodityModel();
+                fb4EngineeringCommodityModel.setUniqueId(enggCommValue.getUniqueId());
+                fb4EngineeringCommodityModel.setEcId(enggCommValue.getEcId());
+                fb4EngineeringCommodityModel.setEnggCommName(enggCommValue.getEcName());
+                fb4EngineeringCommodityModel.setPmt(enggCommValue.getPmt());
+                fb4EngineeringCommodityModel
+                        .setCreatedDate(enggCommValue.getCreateTimeStamp());
+                fb4EngineeringCommodityModel
+                        .setStatus(enggCommValue.isActive() ? CmfConstants.ACTIVE
+                                                            : CmfConstants.INACTIVE);
+
+                engineeringCommodityModelValues.add(fb4EngineeringCommodityModel);
+            }
+            engineeringCommodityModelValues = engineeringCommodityModelValues.stream()
+                    .sorted((e1, e2) -> e1.getEnggCommName().compareTo(e2.getEnggCommName()))
+                    .collect(Collectors.toList());
+        }
+        return engineeringCommodityModelValues;
+    }
+
+    @SuppressWarnings({"unchecked"})
+    private void setTableViewColumns() {
+        this.actionColumn.setCellFactory((param) -> new MultipleHyperlinkCellFactory());
+        this.engineeringCommodityColumn.setCellFactory(new NameTextFieldCellFactory());
+        this.engineeringCommodityColumn
+                .setCellValueFactory(
+                        new PropertyValueFactory<FB4EngineeringCommodityModel, String>(
+                                "enggCommName"));
+        this.statusColumn.setCellFactory(new ComboFieldCellFactoryForStatus());
+        this.statusColumn.setCellValueFactory(
+                new PropertyValueFactory<FB4EngineeringCommodityModel, String>("status"));
+        this.pmtColumn.setCellFactory(new ComboFieldCellFactory());
+        this.pmtColumn.setCellValueFactory(
+                new Callback<TableColumn.CellDataFeatures<FB4EngineeringCommodityModel, String>, ObservableValue<String>>() {
+                    @Override
+                    public ObservableValue<String> call(
+                            final CellDataFeatures<FB4EngineeringCommodityModel, String> param) {
+
+                        final String convertedPmt = convertPMTToDesc(param.getValue().getPmt());
+                        if (convertedPmt != null)
+                            return new SimpleStringProperty(convertedPmt);
+                        return new SimpleStringProperty("");
+                    }
+                });
+        this.createdColumn.setCellValueFactory(
+                new Callback<TableColumn.CellDataFeatures<FB4EngineeringCommodityModel, String>, ObservableValue<String>>() {
+                    @Override
+                    public ObservableValue<String> call(
+                            final CellDataFeatures<FB4EngineeringCommodityModel, String> param) {
+
+                        if (param.getValue().getCreatedDate() == 0) {
+                            return new SimpleStringProperty("");
+                        }
+                        return new SimpleStringProperty(DateTimeConversionUtil
+                                .timestampToMMMddyyyy(
+                                        new Timestamp(param.getValue().getCreatedDate())));
+                    }
+                });
+
+        this.actionColumn.setPrefWidth(100);
+        this.actionColumn.setMaxWidth(150);
+        this.pmtColumn.setPrefWidth(200);
+        this.pmtColumn.setMaxWidth(350);
+        this.statusColumn.setPrefWidth(200);
+        this.statusColumn.setMaxWidth(400);
+        this.createdColumn.setMaxWidth(200);
+        this.engineeringCommodityColumn.setPrefWidth(400);
+        this.engineeringCommodityColumn.setMaxWidth(500);
+        // this.engineeringCommodityManagementTable.setMaxWidth(1500);
+        this.engineeringCommodityManagementTable.getColumns().setAll(this.actionColumn,
+                this.engineeringCommodityColumn,
+                this.pmtColumn, this.createdColumn, this.statusColumn);
+        tableFilter = new TableFilterWrapper<FB4EngineeringCommodityModel>(
+                engineeringCommodityManagementTable,
+                Arrays.asList(this.engineeringCommodityColumn, this.pmtColumn,
+                        this.createdColumn, this.statusColumn),
+                session);
+
+    }
+
+    protected String convertPMTToDesc(final String pmt) {
+        final String pmtCode = !Strings.isNullOrEmpty(pmt) ? pmt.substring(0, 1) : null;
+        if (pmtCode != null && pmtDataList != null && !pmtDataList.isEmpty()) {
+            final Optional<String> pmtData = pmtDataList.stream().filter(p -> p.contains(pmtCode)).findFirst();
+            if (pmtData.isPresent())
+                return pmtData.get();
+        }
+        return null;
+
+    }
+
+    public class MultipleHyperlinkCellFactory
+            extends TableCell<FB4EngineeringCommodityModel, String> {
+        /**
+         * DE38326: Changes This method has been modified to print the exception stack trace
+         * and also added the history functionality for each row
+         */
+        @Override
+        protected void updateItem(final String item, final boolean empty) {
+            super.updateItem(item, empty);
+            if (!empty) {
+                final HBox hb = new HBox();
+                hb.setAlignment(Pos.CENTER);
+                final Hyperlink editlink = new Hyperlink("Edit");
+                editlink.setUnderline(true);
+                final Hyperlink saveLink = new Hyperlink("Save");
+                saveLink.setUnderline(true);
+                final Hyperlink cancellink = new Hyperlink("Cancel");
+                cancellink.setUnderline(true);
+                final Hyperlink historyLink = new Hyperlink("History");
+                historyLink.setUnderline(true);
+                final Separator separator = new Separator();
+                separator.setOrientation(Orientation.VERTICAL);
+                if (!hasEditAccess()) {
+                    editlink.setDisable(true);
+                }
+                if (getTableRow() != null
+                    && ((FB4EngineeringCommodityModel)getTableRow().getItem()) != null
+                    && ((FB4EngineeringCommodityModel)getTableRow().getItem())
+                            .isOpenForEditing()) {
+                    hb.getChildren().add(saveLink);
+                    hb.getChildren().add(separator);
+                    hb.getChildren().add(cancellink);
+                } else {
+                    hb.getChildren().add(editlink);
+                    hb.getChildren().add(separator);
+                    hb.getChildren().add(historyLink);
+                }
+
+                editlink.setOnAction(new EventHandler<ActionEvent>() {
+                    @Override
+                    public void handle(final ActionEvent event) {
+                        if (ManageEngineeringCommodityPanel.this.editMode) {
+                            FB4Dialog.showMessage(editlink, "Unsaved Changes",
+                                    "A row is already open for editing. Please save or discard the changes on that row before proceeding further");
+                        } else if (ManageEngineeringCommodityPanel.this.addChk) {
+                            FB4Dialog.showMessage(addEngineeringCommodity, "Unsaved Changes",
+                                    "A row is already open for editing. Please save or discard the changes on that row before proceeding further");
+                        } else {
+                            final int selectedIndex = getIndex();
+                            final FB4EngineeringCommodityModel rowToEdit =
+                                    ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                            .getItems().get(selectedIndex);
+
+                            ManageEngineeringCommodityPanel.this.rowBeforeEditing =
+                                    new FB4EngineeringCommodityModel();
+                            rowBeforeEditing.setEnggCommName(rowToEdit.getEnggCommName());
+                            rowBeforeEditing.setPmt(rowToEdit.getPmt());
+                            rowBeforeEditing.setStatus(rowToEdit.getStatus());
+
+                            ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                    .getItems()
+                                    .get(selectedIndex)
+                                    .setOpenForEditing(true);
+                            ManageEngineeringCommodityPanel.this.editMode = true;
+
+                            ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                    .refresh();
+                            ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                    .getSelectionModel()
+                                    .select(selectedIndex);
+                        }
+                    }
+                });
+
+                saveLink.setOnAction(new EventHandler<ActionEvent>() {
+                    @Override
+                    public void handle(final ActionEvent event) {
+                        final int selectedIndex = getIndex();
+                        if (validateChanges(saveLink, selectedIndex)) {
+                            try {
+                                saveEnggCommValues(selectedIndex);
+                                resetFields(selectedIndex);
+                                ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                        .refresh();
+                                ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                        .getSelectionModel()
+                                        .clearSelection();
+                                FB4Dialog.showMessage(saveLink, "Success Message",
+                                        CmfConstants.SAVE_SUCCESS_MSG);
+                            } catch (final Exception e) {
+                                e.printStackTrace();
+                                FB4Dialog.showMessage(saveLink, "Failure Message",
+                                        CmfConstants.SAVE_FAILURE_MSG);
+                                cancelAction(selectedIndex);
+                            }
+
+                        }
+
+                    }
+                });
+                cancellink.setOnAction(new EventHandler<ActionEvent>() {
+                    @Override
+                    public void handle(final ActionEvent event) {
+                        final int selectedIndex = getIndex();
+                        cancelAction(selectedIndex);
+
+                    }
+                });
+                historyLink.setOnAction(new EventHandler<ActionEvent>() {
+                    @Override
+                    public void handle(final ActionEvent event) {
+                        final FB4EngineeringCommodityModel selectedComm =
+                                ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                        .getItems()
+                                        .get(getIndex());
+                        borderPane = (BorderPane)getScene().lookup("#bsBorderPane");
+                        borderPane.setCenter(
+                                new FB4PAFAssignmentHistoryPanel(session, selectedComm.getUniqueId(), selectedComm.getEnggCommName(),
+                                        null));
+                    }
+                });
+
+                setGraphic(hb);
+                this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+
+            } else {
+                this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+            }
+
+        }
+
+    }
+
+    private void resetFields(final int selectedIndex) {
+        ManageEngineeringCommodityPanel.this.addChk = false;
+        if (selectedIndex != -1)
+            ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                    .getItems()
+                    .get(selectedIndex)
+                    .setOpenForEditing(false);
+        ManageEngineeringCommodityPanel.this.editMode = false;
+        ManageEngineeringCommodityPanel.this.rowBeforeEditing = null;
+    }
+
+    public class ComboFieldCellFactory implements
+            Callback<TableColumn<FB4EngineeringCommodityModel, String>, TableCell<FB4EngineeringCommodityModel, String>> {
+
+        @Override
+        public TableCell<FB4EngineeringCommodityModel, String> call(
+                final TableColumn<FB4EngineeringCommodityModel, String> param) {
+            final ComboBoxCell comboFieldCell = new ComboBoxCell();
+            return comboFieldCell;
+        }
+
+        public class ComboBoxCell extends TableCell<FB4EngineeringCommodityModel, String> {
+
+            private ComboBox<String> comboField;
+
+            public ComboBoxCell() {
+                this.comboField = new ComboBox<>();
+                this.setGraphic(this.comboField);
+            }
+
+            @Override
+            protected void updateItem(final String item, final boolean empty) {
+                super.updateItem(item, empty);
+                if (!empty) {
+                    String existingPmt = "";
+                    if (getTableRow() != null
+                        && ((FB4EngineeringCommodityModel)getTableRow().getItem()) != null) {
+                        existingPmt = ((FB4EngineeringCommodityModel)getTableRow().getItem())
+                                .getPmt();
+                    }
+
+                    if (ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                            .getItems()
+                            .get(getIndex())
+                            .isOpenForEditing()) {
+                        // US344735--Refactoring to restrict PMT 0
+                        this.comboField.setItems(
+                                FXCollections.observableArrayList(
+                                        ManageEngineeringCommodityPanel.this.pmtComboboxDataList));
+                        this.comboField.setPromptText("Select PMT");
+                        this.comboField.getSelectionModel().select(existingPmt);
+                        this.comboField.valueProperty()
+                                .addListener((observable, oldValue, newValue) -> {
+                                    if (newValue != null && !newValue.isEmpty()) {
+                                        if (getTableRow() != null
+                                            && ((FB4EngineeringCommodityModel)getTableRow()
+                                                    .getItem()) != null) {
+                                            ((FB4EngineeringCommodityModel)getTableRow()
+                                                    .getItem()).setPmt(newValue.length() == 3 ? newValue : newValue.substring(3, 4) + "00");
+                                        }
+                                    }
+                                });
+
+                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                    } else {
+                        this.setText(convertPMTToDesc(existingPmt));
+                        this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                    }
+                } else {
+                    this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                }
+            }
+
+        }
+    }
+
+    public class ComboFieldCellFactoryForStatus implements
+            Callback<TableColumn<FB4EngineeringCommodityModel, String>, TableCell<FB4EngineeringCommodityModel, String>> {
+
+        @Override
+        public TableCell<FB4EngineeringCommodityModel, String> call(
+                final TableColumn<FB4EngineeringCommodityModel, String> param) {
+            final ComboBoxCell comboFieldCell = new ComboBoxCell();
+            return comboFieldCell;
+        }
+
+        public class ComboBoxCell extends TableCell<FB4EngineeringCommodityModel, String> {
+
+            private ComboBox<String> comboField;
+
+            public ComboBoxCell() {
+                this.comboField = new ComboBox<>();
+                this.setGraphic(this.comboField);
+            }
+
+            @Override
+            protected void updateItem(final String item, final boolean empty) {
+                super.updateItem(item, empty);
+                if (!empty) {
+                    String existingStatus = "";
+                    if (getTableRow() != null
+                        && ((FB4EngineeringCommodityModel)getTableRow().getItem()) != null) {
+                        existingStatus =
+                                ((FB4EngineeringCommodityModel)getTableRow().getItem())
+                                        .getStatus();
+                    }
+
+                    final int rowIndex = getIndex();
+                    if (ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                            .getItems()
+                            .get(rowIndex)
+                            .isOpenForEditing()) {
+                        this.comboField.setItems(
+                                FXCollections.observableArrayList(
+                                        ManageEngineeringCommodityPanel.this.statusList));
+                        this.comboField.setPromptText("Select Status");
+                        this.comboField.getSelectionModel().select(existingStatus);
+                        this.comboField.valueProperty()
+                                .addListener(new ChangeListener<String>() {
+
+                                    @Override
+                                    public void changed(
+                                            final ObservableValue<? extends String> arg0,
+                                            final String oldValue,
+                                            final String newValue) {
+                                        if (BomBaseUtil.isNotEmpty(newValue)
+                                            && BomBaseUtil.isNotEmpty(oldValue)
+                                            && !newValue.equalsIgnoreCase(oldValue)) {
+                                            if (getTableRow() != null
+                                                && ((FB4EngineeringCommodityModel)getTableRow()
+                                                        .getItem()) != null) {
+
+                                                ((FB4EngineeringCommodityModel)getTableRow()
+                                                        .getItem()).setStatus(newValue);
+
+                                                if (newValue.equalsIgnoreCase(
+                                                        CmfConstants.INACTIVE)) {
+                                                    initPopOver(rowIndex);
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+
+                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                    } else {
+                        this.setText(existingStatus);
+                        this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                    }
+                } else {
+                    this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                }
+            }
+
+        }
+    }
+
+    public class NameTextFieldCellFactory implements
+            Callback<TableColumn<FB4EngineeringCommodityModel, String>, TableCell<FB4EngineeringCommodityModel, String>> {
+
+        @Override
+        public TableCell<FB4EngineeringCommodityModel, String> call(
+                final TableColumn<FB4EngineeringCommodityModel, String> param) {
+            final TextFieldCell textFieldCell = new TextFieldCell();
+            return textFieldCell;
+        }
+
+        public class TextFieldCell extends TableCell<FB4EngineeringCommodityModel, String> {
+
+            private TextField textField;
+            private StringProperty boundToCurrently = null;
+
+            public TextFieldCell() {
+                this.textField = new TextField();
+                this.setGraphic(this.textField);
+            }
+
+            @Override
+            protected void updateItem(final String item, final boolean empty) {
+                super.updateItem(item, empty);
+                if (!empty) {
+
+                    final int rowIndex = getIndex();
+                    if (ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                            .getItems()
+                            .get(rowIndex)
+                            .isOpenForEditing()) {
+
+                        final ObservableValue<String> ov =
+                                getTableColumn().getCellObservableValue(rowIndex);
+                        final SimpleStringProperty sp = (SimpleStringProperty)ov;
+                        if (this.boundToCurrently == null) {
+                            this.boundToCurrently = sp;
+                            if (sp != null)
+                                this.textField.textProperty().bindBidirectional(sp);
+                        } else {
+                            if (this.boundToCurrently != sp) {
+                                this.textField.textProperty()
+                                        .unbindBidirectional(this.boundToCurrently);
+                                this.boundToCurrently = sp;
+                                this.textField.textProperty()
+                                        .bindBidirectional(this.boundToCurrently);
+                            }
+                        }
+
+                        if (ManageEngineeringCommodityPanel.this.addChk) {
+                            this.textField.setPromptText("Enter Engineering Commodity Name");
+                        }
+
+                        this.textField.textProperty()
+                                .addListener((observable, oldValue, newValue) -> {
+                                    if (this.textField.getText() != null
+                                        && !this.textField.getText().isEmpty()) {
+                                        if (this.textField.getText().length() > 250) {
+                                            final String temps = this.textField.getText()
+                                                    .substring(0, 250);
+                                            this.textField.setText(temps);
+                                        }
+                                        if (getTableRow() != null
+                                            && ((FB4EngineeringCommodityModel)getTableRow()
+                                                    .getItem()) != null) {
+                                            ((FB4EngineeringCommodityModel)getTableRow()
+                                                    .getItem())
+                                                            .setEnggCommName(
+                                                                    this.textField.getText());
+                                        }
+                                    }
+                                });
+                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                    } else {
+                        this.setText(
+                                getTableView().getItems().get(rowIndex).getEnggCommName());
+                        this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                    }
+
+                } else {
+                    this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                }
+            }
+
+        }
+    }
+
+    public void addEngineeringCommodity() {
+        if (this.addChk || ManageEngineeringCommodityPanel.this.editMode) {
+            FB4Dialog.showMessage(addEngineeringCommodity, "Unsaved Changes",
+                    "A row is already open for editing. Please save or discard the changes on that row before proceeding further");
+        } else {
+            this.addChk = true;
+            this.engineeringCommodityManagementTable.getSelectionModel().clearSelection();
+
+            // create new record and add it to the model
+            final FB4EngineeringCommodityModel data = new FB4EngineeringCommodityModel();
+            data.setStatus(CmfConstants.ACTIVE);
+            data.setCreatedDate(System.currentTimeMillis());
+            data.setOpenForEditing(true);
+            this.dataInTable.add(0, data);
+            tableFilter.setMasterData(this.dataInTable);
+            tableFilter.applyFilter();
+
+            // scroll to new row
+            this.engineeringCommodityManagementTable.scrollTo(data);
+            this.engineeringCommodityManagementTable.getSelectionModel().clearAndSelect(0);
+        }
+    }
+
+    private void initPopOver(final int rowIndex) {
+        METHOD_NAME = "initPopOver";
+        try {
+
+            final PAFAssignedToEngineeringCommodityPanel pafAssignedToEngineeringCommodityPanel =
+                    new PAFAssignedToEngineeringCommodityPanel(
+                            ManageEngineeringCommodityPanel.this.session,
+                            ManageEngineeringCommodityPanel.this,
+                            this.rowBeforeEditing.getEnggCommName(), rowIndex);
+
+            new FB4Dialog("pafAssignedToEngineeringCommodityPanel", getScene().getWindow(),
+                    "PAF Assigned To Commodity",
+                    "PAF Assigned To Commodity", pafAssignedToEngineeringCommodityPanel,
+                    true);
+
+        } catch (final Exception exception) {
+            log.logp(Level.SEVERE, CLASS_NAME, METHOD_NAME, "", exception);
+        }
+
+    }
+
+    public void setRowStatus(final String status, final int selectedIndex) {
+        this.engineeringCommodityManagementTable.getItems()
+                .get(selectedIndex)
+                .setStatus(status);
+        this.engineeringCommodityManagementTable.refresh();
+    }
+
+    private boolean validateChanges(final Hyperlink saveLink, final int selectedIndex) {
+        final FB4EngineeringCommodityModel selectedModel =
+                ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                        .getItems().get(selectedIndex);
+        final boolean validate = true;
+        if (ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                .getItems().size() > 0) {
+            String warningMessages = "";
+            if (selectedModel.getEnggCommName() == null
+                || selectedModel.getEnggCommName().trim().equals("")) {
+                warningMessages = "Please enter a value for Engineering Commodity\n";
+            } else if (selectedModel.getEnggCommName().trim().length() > 250) {
+                warningMessages =
+                        "Engineering Commodity Name cannot be more than 250 characters\n";
+            } else {
+                final List<FB4EngineeringCommodityModel> duplicateEnggComm =
+                        ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                                .getItems()
+                                .stream()
+                                .filter(m -> m.getEnggCommName()
+                                        .trim()
+                                        .equalsIgnoreCase(
+                                                selectedModel.getEnggCommName().trim()))
+                                .collect(Collectors.toList());
+
+                if (duplicateEnggComm != null && duplicateEnggComm.size() > 1) {
+                    warningMessages = "Engineering Commodity already Exists !\n ";
+                }
+            }
+            if (selectedModel.getPmt() == null
+                || "--Select--".equals(selectedModel.getPmt())) {
+                warningMessages = warningMessages + "Please select a value for PMT\n";
+            }
+            if (selectedModel.getStatus() == null) {
+                warningMessages = warningMessages + "Please select a value for status";
+            }
+
+            if (!warningMessages.equals("")) {
+                FB4Dialog.showMessage(saveLink, "Validation Error", warningMessages);
+                return false;
+            }
+        }
+        return validate;
+    }
+
+    /**
+     * DE38326: Changes This method has been modified to add the history log when an
+     * engineering commodity is created or updated. The method has been refactored to separate
+     * the creation and updation into two separate methods. Also added the code to add the
+     * history logs for the changes
+     */
+    private void saveEnggCommValues(final int selectedIndex)
+            throws BomInFedeConsumerException {
+        final String METHOD_NAME = "saveEnggCommValues";
+        final FB4EngineeringCommodityModel selectedModel =
+                ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                        .getItems().get(selectedIndex);
+
+        final FB4EngineeringCommodity modifiedCommodityObj = new FB4EngineeringCommodity();
+        modifiedCommodityObj.setEcName(selectedModel.getEnggCommName().trim());
+        if (selectedModel.getPmt() != null)
+            modifiedCommodityObj
+                    .setPmt(selectedModel.getPmt().length() == 3 ? selectedModel.getPmt() : selectedModel.getPmt().substring(3, 4) + "00");
+        modifiedCommodityObj.setCreateTimeStamp(selectedModel.getCreatedDate());
+        modifiedCommodityObj.setActive(
+                CmfConstants.ACTIVE.equalsIgnoreCase(selectedModel.getStatus()) ? true
+                                                                                : false);
+        modifiedCommodityObj.setUniqueId(selectedModel.getUniqueId());
+
+        final FB4Message message = new FB4Message();
+        final List<FB4CRActivityLog> logs = new ArrayList<>();
+        if (this.addChk) {
+            createNewCommodity(selectedModel, modifiedCommodityObj, message, logs);
+            // DE43632---Start
+            final EngineeringCommodityResponsibilityService respService =
+                    new EngineeringCommodityResponsibilityServiceImpl();
+            respService.addCommodityResponsibility(modifiedCommodityObj);
+            // DE43632-ENd
+        } else {
+            updateExistingCommodity(selectedModel, modifiedCommodityObj, message, logs);
+        }
+        try {
+
+            final FB4NonProductSetupHistoryDataRefresher nonProductSetupHistoryDataRefresher = new FB4NonProductSetupHistoryDataRefresher();
+            PerformanceMetricsContext.getInstance().getStatistics().startTimer("ManageEngineeringCommodityPanel", "saveEnggCommValues");
+            nonProductSetupHistoryDataRefresher.addHistoryLog(logs);
+            PerformanceMetricsContext.getInstance().getStatistics().stopTimer("ManageEngineeringCommodityPanel", "saveEnggCommValues");
+        } catch (final Exception e) {
+            log.logp(Level.SEVERE, CLASS_NAME, METHOD_NAME, "Exception while saving history logs", e);
+            // TODO Add to error log in case of failure
+        }
+
+        log.log(Level.INFO, "Message Obj::" + message.toString());
+
+    }
+
+    /**
+     * DE38326: Changes This method has been newly created to create a new engineering
+     * commodity. Also computes the list of history logs for the change
+     */
+    private void createNewCommodity(final FB4EngineeringCommodityModel selectedModel, final FB4EngineeringCommodity modifiedCommodityObj,
+            final FB4Message message, final List<FB4CRActivityLog> logs) {
+        final FB4EngineeringCommodityDataRefresher dataRefresher =
+                new FB4EngineeringCommodityDataRefresher();
+
+        final IntSummaryStatistics summaryStatistics = ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                .getItems()
+                .stream()
+                .filter(row -> row.getEcId() != null)
+                .map(FB4EngineeringCommodityModel::getEcId)
+                .mapToInt(Integer::intValue)
+                .summaryStatistics();
+        final int maxEcId = summaryStatistics.getMax();
+        modifiedCommodityObj.setEcId(maxEcId + 1);
+
+        log.log(Level.INFO, "New ECId::" + (maxEcId + 1));
+        PerformanceMetricsContext.getInstance().getStatistics().startTimer("ManageEngineeringCommodityPanel", "createNewCommodity");
+        dataRefresher.createOrUpdateEngineeringCommodity(modifiedCommodityObj,
+                FB4Constants.OPERATION_CREATE, message);
+        PerformanceMetricsContext.getInstance().getStatistics().stopTimer("ManageEngineeringCommodityPanel", "createNewCommodity");
+        logs.addAll(NonProductHistoryUtil.getChangeLogForEngineeringCommodity(new FB4EngineeringCommodity(), modifiedCommodityObj,
+                this.session.getUserId()));
+
+        selectedModel.setEcId(maxEcId + 1);
+        selectedModel.setUniqueId(modifiedCommodityObj.getUniqueId());
+    }
+
+    /**
+     * DE38326: Changes This method has been newly created to update an existing engineering
+     * commodity. Also computes the list of history logs for the change
+     */
+    private void updateExistingCommodity(final FB4EngineeringCommodityModel selectedModel,
+            final FB4EngineeringCommodity modifiedCommodityObj,
+            final FB4Message message, final List<FB4CRActivityLog> logs) {
+        final FB4EngineeringCommodityDataRefresher dataRefresher =
+                new FB4EngineeringCommodityDataRefresher();
+
+        final FB4EngineeringCommodity oldEnggComm =
+                FB4BOMPrgIndependentDataHolder.getInstance()
+                        .getEnggCommodityContainer()
+                        .values()
+                        .stream()
+                        .filter(engComm -> engComm.getUniqueId()
+                                .equalsIgnoreCase(selectedModel.getUniqueId()))
+                        .findFirst()
+                        .get();
+
+        // Populate existing values
+        modifiedCommodityObj.setEcId(oldEnggComm.getEcId());
+        modifiedCommodityObj.setAlignedFlag(oldEnggComm.isAlignedFlag());
+        modifiedCommodityObj.setIsNotActiveReason(oldEnggComm.getIsNotActiveReason());
+        modifiedCommodityObj.setTopHatPlatformIndicator(oldEnggComm.getTopHatPlatformIndicator());
+        modifiedCommodityObj.setPafCodes(oldEnggComm.getPafCodes());
+        PerformanceMetricsContext.getInstance().getStatistics().startTimer("ManageEngineeringCommodityPanel", "updateExistingCommodity");
+        dataRefresher.createOrUpdateEngineeringCommodity(modifiedCommodityObj,
+                FB4Constants.OPERATION_UPDATE, message);
+        PerformanceMetricsContext.getInstance().getStatistics().stopTimer("ManageEngineeringCommodityPanel", "updateExistingCommodity");
+        logs.addAll(
+                NonProductHistoryUtil.getChangeLogForEngineeringCommodity(oldEnggComm, modifiedCommodityObj, this.session.getUserId()));
+
+        updateCommodityNameAcrossAllChangeRequests(modifiedCommodityObj, message, oldEnggComm);
+    }
+
+    /**
+     * DE38326: Changes This method has been created after refactoring the saveEnggCommValues
+     * method. This method will update the engineering commodity name across all change
+     * requests
+     */
+    private void updateCommodityNameAcrossAllChangeRequests(final FB4EngineeringCommodity updatedEC, final FB4Message message,
+            final FB4EngineeringCommodity oldEC) {
+        final FBLServicesApi fblApi = FBLServicesApi.getFBLService();
+        fblApi.updateCommodityAcrossAllChangeRequests(oldEC, updatedEC, message);
+    }
+
+    @SuppressWarnings("unchecked")
+    public void export(final ActionEvent event) {
+
+        final TableView<FB4EngineeringCommodityModel> exportTable = new TableView<>();
+
+        final TableColumn<FB4EngineeringCommodityModel, String> engineeringCommodityColumn =
+                new TableColumn<FB4EngineeringCommodityModel, String>(
+                        "Engineering Commodity");
+
+        final TableColumn<FB4EngineeringCommodityModel, String> pmtColumn =
+                new TableColumn<FB4EngineeringCommodityModel, String>(
+                        "PMT");
+
+        final TableColumn<FB4EngineeringCommodityModel, String> createdColumn =
+                new TableColumn<FB4EngineeringCommodityModel, String>(
+                        "Created Date");
+
+        final TableColumn<FB4EngineeringCommodityModel, String> statusColumn =
+                new TableColumn<FB4EngineeringCommodityModel, String>(
+                        "Status");
+
+        engineeringCommodityColumn
+                .setCellValueFactory(
+                        new PropertyValueFactory<FB4EngineeringCommodityModel, String>(
+                                "enggCommName"));
+
+        pmtColumn.setCellValueFactory(
+                new Callback<TableColumn.CellDataFeatures<FB4EngineeringCommodityModel, String>, ObservableValue<String>>() {
+                    @Override
+                    public ObservableValue<String> call(
+                            final CellDataFeatures<FB4EngineeringCommodityModel, String> param) {
+
+                        final String convertedPmt = convertPMTToDesc(param.getValue().getPmt());
+                        if (convertedPmt != null)
+                            return new SimpleStringProperty(convertedPmt);
+                        return new SimpleStringProperty("");
+                    }
+                });
+
+        createdColumn.setCellValueFactory(
+                new Callback<TableColumn.CellDataFeatures<FB4EngineeringCommodityModel, String>, ObservableValue<String>>() {
+
+                    @Override
+                    public ObservableValue<String> call(
+                            final CellDataFeatures<FB4EngineeringCommodityModel, String> param) {
+
+                        if (param.getValue().getCreatedDate() == 0) {
+                            return new SimpleStringProperty("");
+                        }
+                        return new SimpleStringProperty(DateTimeConversionUtil
+                                .timestampToMMMddyyyy(
+                                        new Timestamp(param.getValue().getCreatedDate())));
+                    }
+                });
+
+        statusColumn.setCellValueFactory(
+                new PropertyValueFactory<FB4EngineeringCommodityModel, String>("status"));
+
+        exportTable.getColumns().addAll(engineeringCommodityColumn, pmtColumn, createdColumn,
+                statusColumn);
+
+        exportTable.setItems(FXCollections.observableArrayList(getCommodityModelObjects()));
+
+        @SuppressWarnings("rawtypes")
+        final ExportToExcelSrvc exportExcelSrvc =
+                new ExportToExcelSrvc("Sheet1", "EngineeringCommodityResult",
+                        "EngineeringCommodityResult"
+                                                                              + new SimpleDateFormat(
+                                                                                      "d-MMM-yyyy hh:mm:ss aaa")
+                                                                                              .format(new Date())
+                                                                                              .replace(
+                                                                                                      ":",
+                                                                                                      "_"),
+                        false);
+
+        exportExcelSrvc.exportToExcel(exportTable);
+    }
+
+    private void cancelAction(final int selectedIndex) {
+        if (ManageEngineeringCommodityPanel.this.addChk) {
+            ManageEngineeringCommodityPanel.this.dataInTable.remove(0);
+            tableFilter.setMasterData(this.dataInTable);
+            tableFilter.applyFilter();
+            resetFields(-1);
+        } else {
+            final FB4EngineeringCommodityModel rowToEdit =
+                    ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                            .getItems().get(selectedIndex);
+            rowToEdit.setEnggCommName(rowBeforeEditing.getEnggCommName());
+            rowToEdit.setPmt(rowBeforeEditing.getPmt());
+            rowToEdit.setStatus(rowBeforeEditing.getStatus());
+
+            resetFields(selectedIndex);
+        }
+        ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable.refresh();
+        ManageEngineeringCommodityPanel.this.engineeringCommodityManagementTable
+                .getSelectionModel()
+                .clearSelection();
+    }
+
+    private void validateSecurityAccess() {
+        if (userAccessLevel.equals(ACCESS_LEVEL.VIEW)
+            || userAccessLevel.equals(ACCESS_LEVEL.NO_ACCESS)) {
+            addEngineeringCommodity.setDisable(true);
+            wips.setDisable(true);
+        } else {
+            addEngineeringCommodity.setDisable(false);
+            wips.setDisable(false);
+        }
+    }
+}
