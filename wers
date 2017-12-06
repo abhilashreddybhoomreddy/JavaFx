@@ -140,7 +140,7 @@ public class WersGsdbMappingPanel extends FB4Panel {
     	//editlink.setUnderline(true);
     	
     	action.setCellValueFactory(
-    		    new PropertyValueFactory<WersGsdbRecord,String>("action")
+    		    new PropertyValueFactory<WersGsdbRecord,String>("")
     		);
     	
         wersPlantCode.setCellValueFactory(
@@ -190,6 +190,7 @@ public class WersGsdbMappingPanel extends FB4Panel {
         	//System.out.println("New Row!"); 
         	addNewRow = 1;
         	WersGsdbRecord newRow = new WersGsdbRecord(); 
+        	
         	newRow.setWersPlantCode("");
         	newRow.setWersPlantCode("");
         	newRow.setGsdbCode("");
@@ -224,7 +225,7 @@ public class WersGsdbMappingPanel extends FB4Panel {
                     System.out.println("item = "+ item);
                     
                     if (item == null || empty) {
-						setText(null);
+						//setText(null);
 						setStyle("-fx-background-color: yellow");
 						System.out.println("CellEmpty Called");
 					}
@@ -372,6 +373,7 @@ public class WersGsdbMappingPanel extends FB4Panel {
 
 
     public static class WersGsdbRecord {
+    	String action;
     	String wersPlantCode;
         String gsdbCode;
         String gsdbDescription;
