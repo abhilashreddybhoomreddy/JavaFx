@@ -25,10 +25,15 @@
  Date             UserStory/         Modified BY         Description of Change
                   Defect#
  ------------------------------------------------------------------------------
- Nov-30-2017     US395468           MVAKA1            implemented WIPS Plant to GSDB Mapping
+ Nov-30-2017     US395468           ABHOOMRE            implemented WIPS Plant to GSDB Mapping
  ============================================================================*/
 package com.ford.pd.bom.ui.cmf.panels;
 
+import javafx.scene.Node;
+import javafx.scene.Parent;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Alert.AlertType;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContentDisplay;
 
@@ -37,7 +42,9 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
@@ -51,11 +58,13 @@ import com.ford.pd.bom.domain.data.gsdb.FB4GSDBSupplierDataHolder;
 import com.ford.pd.bom.ui.cmf.model.FB4EngineeringCommodityModel;
 import com.ford.pd.bom.ui.cmf.panels.ManageEngineeringCommodityPanel.MultipleHyperlinkCellFactory;
 import com.ford.pd.bom.ui.common.controls.TableFilterWrapper;
+import com.ford.pd.bom.ui.common.dialog.FB4Dialog;
 import com.ford.pd.bom.ui.common.panels.FB4Panel;
 import com.ford.pd.bom.ui.constants.UIConstants;
 import com.ford.pd.bom.ui.panels.FB4PAFAssignmentHistoryPanel;
 import com.ford.pd.bom.ui.session.BOMSession;
 import com.ford.pd.bom.ui.utils.ExportToExcelSrvc;
+//import com.jidesoft.icons.IconSet.Text;
 import com.sun.prism.paint.Color;
 import com.sun.xml.bind.v2.runtime.unmarshaller.XsiNilLoader.Array;
 
@@ -66,18 +75,28 @@ import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
+import javafx.fxml.FXMLLoader;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.control.Hyperlink;
+import javafx.scene.control.ListView;
 import javafx.scene.control.Separator;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableColumn.CellDataFeatures;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextField;
 import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
+import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
 import javafx.util.Callback;
+import javafx.scene.text.Text;
 
 /**
  * TODO - Place class description here
@@ -95,13 +114,17 @@ public class WersGsdbMappingPanel extends FB4Panel {
 
     private String excelFilePath = "";
     
-    private int addNewRow = 0;
+    private boolean isEdit = false;
 
+    private boolean isGsdbSelected = false;
+    
     BOMSession session;
     
    // final TableColumn<WersGsdbRecord, String> action = new TableColumn<>("Action");
 
-    final TableColumn<WersGsdbRecord, String> action =  new TableColumn<WersGsdbRecord, String>("action");
+    //final TableColumn<WersGsdbRecord, String> action =  new TableColumn<>("action");
+    
+    final TableColumn<WersGsdbRecord, String> actions = new TableColumn<>("Actions");
     
     final TableColumn<WersGsdbRecord, String> wersPlantCode = new TableColumn<>("WERS Plant Code");
 
@@ -139,7 +162,7 @@ public class WersGsdbMappingPanel extends FB4Panel {
     private void init() {
     	//editlink.setUnderline(true);
     	
-    	action.setCellValueFactory(
+    	actions.setCellValueFactory(
     		    new PropertyValueFactory<WersGsdbRecord,String>("")
     		);
     	
@@ -158,11 +181,11 @@ public class WersGsdbMappingPanel extends FB4Panel {
        
         
         //Adding Columns names
-        this.wersGsdbTable.getColumns().addAll(this.action, this.wersPlantCode, this.gsdbCode, this.gsdbDescription, this.docCode);
+        this.wersGsdbTable.getColumns().addAll(this.actions, this.wersPlantCode, this.gsdbCode, this.gsdbDescription, this.docCode);
         //this.mappingTable.setItems(this.mappingData);
         this.wersGsdbTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
         
-        action.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5)); // w * 1/5
+        actions.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5)); // w * 1/5
         wersPlantCode.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5)); // w * 1/5
         gsdbCode.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5)); // w * 1/5
         gsdbDescription.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5)); // w * 1/5
@@ -179,88 +202,450 @@ public class WersGsdbMappingPanel extends FB4Panel {
         
         //Enabling Filter feature
         this.tableFilterWrapper = new TableFilterWrapper<>(this.wersGsdbTable,
-               Arrays.asList(this.wersPlantCode, this.gsdbCode, this.gsdbDescription, this.docCode));
-        //tableFilterWrapper.setMasterData(mappingData);
-        //tableFilterWrapper.applyFilter();
-        exportToExcelTable();
+              Arrays.asList(this.wersPlantCode, this.gsdbCode, this.gsdbDescription, this.docCode));
+        tableFilterWrapper.setMasterData(data);
+        tableFilterWrapper.applyFilter();
+      //  exportToExcelTable();
        
         
         //When user clicks on add NewWersMapping
         this.addNewWersMapping.setOnAction(event -> {
         	//System.out.println("New Row!"); 
-        	addNewRow = 1;
+        	
+           if(!isEdit)
+           {
+        	isEdit = true;
         	WersGsdbRecord newRow = new WersGsdbRecord(); 
         	
-        	newRow.setWersPlantCode("");
         	newRow.setWersPlantCode("");
         	newRow.setGsdbCode("");
         	newRow.setGsdbDescription("");
         	newRow.setDocCode("");
         	
         	data.add(0, newRow);
-        	
-        	});
-        
-        
-        action.setCellFactory(column -> {
-            return new TableCell<WersGsdbRecord, String>() {
-                @Override
-                protected void updateItem(String item, boolean empty) {
-                	
-                	//System.out.println("Factory Called");
-                    super.updateItem(item, empty);
-                    
-                    final HBox hb = new HBox();
-                    hb.setAlignment(Pos.CENTER);
-                    final Hyperlink editLink = new Hyperlink("Edit");
-                    editLink.setUnderline(true);
-                    final Hyperlink saveLink = new Hyperlink("Save");
-                    saveLink.setUnderline(true);
-                    final Hyperlink cancellink = new Hyperlink("Cancel");
-                    cancellink.setUnderline(true);
-                    final Separator separator = new Separator();
-                    
-                    separator.setOrientation(Orientation.VERTICAL);
-                    
-                    System.out.println("item = "+ item);
-                    
-                    if (item == null || empty) {
-						//setText(null);
-						setStyle("-fx-background-color: yellow");
-						System.out.println("CellEmpty Called");
-					}
-                    else
-                    {
-                    
-                       if (addNewRow == 1) {
-                    	 hb.getChildren().add(saveLink);
-                         hb.getChildren().add(separator);
-                         hb.getChildren().add(cancellink);
-                         
-                         setGraphic(hb);
-                         this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-                         addNewRow = 0;
-                         System.out.println("Add New row called");
-                       }
-                    
-                       else
-                       {          	
-                         hb.getChildren().add(editLink);
-                         
-                         
-                         
-                         setGraphic(hb);
-                         this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
-                         System.out.println("Not new row called");
-                       }
-                       
-                       
-                   }
-                    
-                }
-            };
-          });
+        	this.wersGsdbTable.setItems(this.data);
+           }
+           
+           //Show error message
+           else
+           {
+        	   Alert alert = new Alert(AlertType.INFORMATION);
+        	   alert.setTitle("Information Dialog");
+        	   alert.setHeaderText(null);
+        	   alert.setContentText("Please Save or Cancel the already editing Mapping Row!");
 
+        	   alert.showAndWait();
+           }
+        	
+       });
+        
+        
+        actions.setCellFactory(new Callback<TableColumn<WersGsdbRecord, String>, 
+                TableCell<WersGsdbRecord, String>>()
+                {
+                    @Override
+                    public TableCell<WersGsdbRecord, String> call(
+                            TableColumn<WersGsdbRecord, String> param)
+                    {
+                        return new TableCell<WersGsdbRecord, String>()
+                        {
+                            @Override
+                            protected void updateItem(String item, boolean empty)
+                            {
+                                
+                                if (!empty)
+                                {
+                                	
+                                	final HBox hb = new HBox();
+                                    hb.setAlignment(Pos.CENTER);
+                                    final Hyperlink editLink = new Hyperlink("Edit");
+                                    editLink.setUnderline(true);
+                                    final Hyperlink saveLink = new Hyperlink("Save");
+                                    saveLink.setUnderline(true);
+                                    final Hyperlink cancellink = new Hyperlink("Cancel");
+                                    cancellink.setUnderline(true);
+                                    final Separator separator = new Separator();
+                                    
+                                    separator.setOrientation(Orientation.VERTICAL);
+                                    //System.out.print("Update called");
+                                    int currentIndex = indexProperty().getValue();
+                                    
+                                    //System.out.println("Index value "+currentIndex);
+                                    String rowCheck = param.getTableView().getItems().get(currentIndex).getWersPlantCode();
+                                    //System.out.println("WersPlantCode " +rowCheck);
+                                    
+                                    
+                                    if(isEdit && currentIndex == 0 )
+                                    {
+                                    	
+                                    	hb.getChildren().add(saveLink);
+                                        hb.getChildren().add(separator);
+                                        hb.getChildren().add(cancellink);
+                                        
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);                                        
+                                        
+                                    }
+                                    else
+                                    {
+                                    	hb.getChildren().add(editLink);
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                                    	
+                                    }
+                                    
+                                }
+                                
+                                else{
+                                	setGraphic(null);
+                                }
+                            }
+                        };
+                    }
+                });
+        
+        gsdbCode.setCellFactory(new Callback<TableColumn<WersGsdbRecord, String>, 
+                TableCell<WersGsdbRecord, String>>()
+                {
+                    @Override
+                    public TableCell<WersGsdbRecord, String> call(
+                            TableColumn<WersGsdbRecord, String> param)
+                    {
+                        return new TableCell<WersGsdbRecord, String>()
+                        {
+                            @Override
+                            protected void updateItem(String item, boolean empty)
+                            {
+                                
+                                if (!empty)
+                                {
+                                	
+                                	final HBox hb = new HBox();
+                                    hb.setAlignment(Pos.CENTER);
+                                    final Hyperlink editLink = new Hyperlink("Search GSDB code");
+                                    editLink.setUnderline(true);
+                     
+                                    //System.out.print("Update called");
+                                    int currentIndex = indexProperty().getValue();
+                                    
+                                    //System.out.println("Index value "+currentIndex);
+                                    String rowCheck = param.getTableView().getItems().get(currentIndex).getWersPlantCode();
+                                    //System.out.println("WersPlantCode " +rowCheck);
+                                    
+                                    
+                                    if(isEdit && currentIndex == 0 && !isGsdbSelected )
+                                    {
+                                    	hb.getChildren().add(editLink);
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);                                        
+                                        
+                                    }
+                                    else
+                                    {
+                                    	//System.out.println("oooooooooooooooooooooooooo " + item );
+                                    	setText(item);
+                                    	setContentDisplay(ContentDisplay.TEXT_ONLY);
+                                    	setGraphic(null);
+                                    	//setStyle("");
+                                    	//System.out.println("This is normal row");
+                                    	
+                                    }
+                                    
+                                    editLink.setOnAction(new EventHandler<ActionEvent>() {
+                                        @Override
+                                        public void handle(final ActionEvent event) {
+                                        	
+                                            System.out.println("Gsdb Modal Opened");
+                                            Stage window = new Stage();
+                                          //Instantiating the VBox class  
+                                            BorderPane bpane = new BorderPane();
+  
+                                            Text text = new Text();        
+                                            Button select = new Button("select");
+                                            Button close = new Button("close");
+                                            
+                                            
+                                            ListView<String> gsdbList = new ListView<String>();
+                                            ObservableList<String> items =FXCollections.observableArrayList (
+                                                "GSDB1", "GSDB2", "GSDB3", "GSDB4");
+                                            gsdbList.setItems(items);
+                                            gsdbList.setPrefWidth(300);
+                                            gsdbList.setPrefHeight(250);
+                                            gsdbList.getSelectionModel().getSelectedItem();
+                                            
+                                            
+                                            
+                                            Map<String, String> map = new HashMap<String, String>();
+                                            map.put("GSDB1", "GSDB1 corresponding description");
+                                            map.put("GSDB2", "GSDB2 corresponding description");
+                                            map.put("GSDB3", "GSDB3 corresponding description");
+                                            map.put("GSDB4", "GSDB4 corresponding description");
+                                            System.out.println(map.get("GSDB1"));
+                                            
+                                            HBox hbox = new HBox();    
+                                            
+                                            //Setting the space between the nodes of a HBox pane 
+                                            hbox.setSpacing(10);    
+                                            //retrieving the observable list of the HBox 
+                                            ObservableList<Node> olist = hbox.getChildren();  
+                                            
+                                            //Adding all the nodes to the observable list (HBox) 
+                                            olist.addAll(select,close); 
+                                            
+                                            
+                                            
+                                            bpane.setTop(text);
+                                            bpane.setBottom(hbox);
+                                            bpane.setCenter(gsdbList);
+                                            
+                                            close.setOnAction(new EventHandler<ActionEvent>() {
+                                                @Override public void handle(ActionEvent e) {
+                                                    window.close();
+                                                }
+                                            });
+                                            
+                                            select.setOnAction(new EventHandler<ActionEvent>() {
+                                            	
+                                                @Override public void handle(ActionEvent e) {
+                                                	
+                                                	String selectedItem = gsdbList.getSelectionModel().getSelectedItem();
+                                                	System.out.println("Selected item is " + selectedItem);
+                                                	System.out.println("Respective description is " + map.get(selectedItem));
+                                                    
+                                                	if(gsdbList.getSelectionModel().getSelectedIndex() != -1)
+                                                	{
+                                                		isGsdbSelected = true;
+                                                		setGraphic(null);
+                                                    	setStyle("");
+                                                    	
+                                                    	setContentDisplay(ContentDisplay.TEXT_ONLY);
+                                                    	setText(selectedItem);
+                                                    	//param.getTableView().getItems().get(currentIndex).wersPlantCode = map.get(selectedItem);
+                                                    	
+                                                    	isEdit = true;
+                                                    	WersGsdbRecord newRow = new WersGsdbRecord(); 
+                                                    	
+                                                    	newRow.setWersPlantCode(param.getTableView().getItems().get(currentIndex).getWersPlantCode());
+                                                    	newRow.setGsdbCode(selectedItem);
+                                                    	newRow.setGsdbDescription(map.get(selectedItem));
+                                                    	newRow.setDocCode(param.getTableView().getItems().get(currentIndex).getDocCode());
+                                                    	//System.out.println("New row set  WersPlantCode = "+ param.getTableView().getItems().get(currentIndex).getWersPlantCode());
+                                                    	//System.out.println("New row get WersPlantCode = "+ newRow.getWersPlantCode());
+                                                    	//System.out.println("Data before adding new data  "+ data);
+                                                    	data.add(0, newRow);
+                                                    	wersGsdbTable.setItems(data);
+                                                    	//System.out.println("Data after adding new data  "+ data);
+                                                    	data.remove(1);
+                                                    	wersGsdbTable.setItems(data);
+                                                    	//System.out.println("Data after removing second row  "+ data);
+                                                    	wersGsdbTable.setItems(data);
+                                                    	
+                                                    	
+                                                    	
+                                                    	window.close();
+                                                	}
+
+                                                }
+                                            });
+                                            	
+                                       
+                                            //Setting the text to be added. 
+                                            text.setText("Please select GSDB code"); 
+                                            
+                                            
+                                            Scene scene = new Scene(bpane,500,400);
+                                            window.setScene(scene);
+                                            window.setTitle("GSDB Code");
+                                            window.initModality(Modality.APPLICATION_MODAL);
+                                            
+                                         
+                                            window.showAndWait();
+                                        }
+                                    });
+                                    
+                                    
+                                    
+                                    
+                                    
+                                }
+                                
+                                else{
+                                	setGraphic(null);
+                                	setText(null);
+                                }
+                            }
+                        };
+                    }
+                });
+        
+        
+        
+        wersPlantCode.setCellFactory(new Callback<TableColumn<WersGsdbRecord, String>, 
+                TableCell<WersGsdbRecord, String>>()
+                {
+                    @Override
+                    public TableCell<WersGsdbRecord, String> call(
+                            TableColumn<WersGsdbRecord, String> param)
+                    {
+                        return new TableCell<WersGsdbRecord, String>()
+                        {
+                            @Override
+                            protected void updateItem(String item, boolean empty)
+                            {
+                               
+                                if (item != null && !empty) 
+                                {
+                                	
+                                	final HBox hb = new HBox();
+                                    hb.setAlignment(Pos.CENTER);
+                                    
+                                    TextField textfield = new TextField();
+                                    textfield.setOnKeyReleased(new EventHandler<KeyEvent>() {
+                                        @Override
+                                        public void handle(KeyEvent event) {
+                                        	
+                                        	//Saving in data array
+                                        	WersGsdbRecord model = param.getTableView().getItems().get(indexProperty().getValue());
+                                        	model.wersPlantCode = textfield.getText();
+                                        	System.out.println("WersPlantCode= "+ model.wersPlantCode);
+                                        	}
+                                    });
+                                    textfield.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5));
+                                    
+                                    int currentIndex = indexProperty().getValue();
+                                    
+                                   
+                                    if(isEdit && currentIndex == 0 && !isGsdbSelected )
+                                    {
+                                    	
+                                    	hb.getChildren().add(textfield);
+                                    	setStyle("-fx-background-color: yellow");
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                                        
+                                        //isEdit = false;
+                                        //addNewRow = 0;
+                                        System.out.println("This is Editable row");
+                                        
+                                    }
+                                    
+                                    else if(isGsdbSelected)
+                                    {
+                                    	textfield.setText(item);
+                                    	hb.getChildren().add(textfield);
+                                    	setStyle("-fx-background-color: yellow");
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                                        
+                                        //isEdit = false;
+                                        //addNewRow = 0;
+                                    }
+                                    else
+                                    {
+                                    	setText(item);
+                                    	setContentDisplay(ContentDisplay.TEXT_ONLY);
+                                    	setGraphic(null);
+                                    	setStyle("");
+                                    	//System.out.println("This is normal row");
+                                    	
+                                    }
+                                    
+                                }
+                                
+                                else{
+                                	
+                                	setGraphic(null);
+                                	setText(null);
+                                }
+                            }
+                        };
+                    }
+                });
+        
+        
+        docCode.setCellFactory(new Callback<TableColumn<WersGsdbRecord, String>, 
+                TableCell<WersGsdbRecord, String>>()
+                {
+                    @Override
+                    public TableCell<WersGsdbRecord, String> call(
+                            TableColumn<WersGsdbRecord, String> param)
+                    {
+                        return new TableCell<WersGsdbRecord, String>()
+                        {
+                            @Override
+                            protected void updateItem(String item, boolean empty)
+                            {
+                               
+                                if (item != null && !empty) 
+                                {
+                                	
+                                	final HBox hb = new HBox();
+                                    hb.setAlignment(Pos.CENTER);
+                                    
+                                    TextField textfield = new TextField();
+                                    textfield.prefWidthProperty().bind(wersGsdbTable.widthProperty().divide(5));
+                                    
+                                    textfield.setOnKeyReleased(new EventHandler<KeyEvent>() {
+                                        @Override
+                                        public void handle(KeyEvent event) {
+                                        	
+                                        	WersGsdbRecord model = param.getTableView().getItems().get(indexProperty().getValue());
+                                        	model.docCode = textfield.getText();
+                                        	
+                                        	System.out.println("Doccode= "+ model.docCode);
+                                        	}
+                                    });
+                                    
+                                    int currentIndex = indexProperty().getValue();
+                                    
+                                   
+                                    if(isEdit && currentIndex == 0 && !isGsdbSelected )
+                                    {
+                                    	
+                                    	hb.getChildren().add(textfield);
+                                    	setStyle("-fx-background-color: yellow");
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                                        
+                                        //isEdit = false;
+                                        //addNewRow = 0;
+                                        //System.out.println("This is Editable row");
+                                        
+                                    }
+                                    else if(isGsdbSelected)
+                                    {
+                                    	textfield.setText(item);
+                                    	hb.getChildren().add(textfield);
+                                    	setStyle("-fx-background-color: yellow");
+                                        setGraphic(hb);
+                                        this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                                        
+                                        //isEdit = false;
+                                        //addNewRow = 0;
+                                    }
+                                    else
+                                    {
+                                    	setText(item);
+                                    	setContentDisplay(ContentDisplay.TEXT_ONLY);
+                                    	setGraphic(null);
+                                    	setStyle("");
+                                    	//System.out.println("This is normal row");
+                                    	
+                                    }
+                                    
+                                }
+                                
+                                else{
+                                	System.out.println("0000000000000000000000000000000000");
+                                	setGraphic(null);
+                                	setText(null);
+                                }
+                            }
+                        };
+                    }
+                });
+        
+        
         
     }
     //init end
@@ -282,7 +667,6 @@ public class WersGsdbMappingPanel extends FB4Panel {
     	            // Using XSSF for xlsx format, for xls use HSSF
     	
     	            Workbook workbook = new XSSFWorkbook(fis);
-    	            WersGsdbRecord record = new WersGsdbRecord();
 
     	            
     	            //looping over workbook sheet
@@ -291,6 +675,8 @@ public class WersGsdbMappingPanel extends FB4Panel {
     	                		
     	             //iterating over each row
     	              while (rowIterator.hasNext()) {
+    	            	  
+    	            	 WersGsdbRecord record = new WersGsdbRecord();
     	                 Row row = (Row) rowIterator.next();
     	                 Iterator<Cell> cellIterator = row.cellIterator();
     	                    
@@ -302,44 +688,44 @@ public class WersGsdbMappingPanel extends FB4Panel {
     	                          	
       	                            if (cell.getColumnIndex() == 0) {
       	                                record.setWersPlantCode(String.valueOf(cell.getStringCellValue()));
-      	                                System.out.println(cell.getStringCellValue());
+      	                               // System.out.println(cell.getStringCellValue());
       	                            }
       	
       	                            
       	                            else if (cell.getColumnIndex() == 1) {
       	
       	                                record.setGsdbCode(String.valueOf(cell.getStringCellValue()));
-      	                                System.out.println(cell.getStringCellValue());
+      	                               // System.out.println(cell.getStringCellValue());
       	                            }
       	
       	                            
       	                            else if (cell.getColumnIndex() == 2) {
       	
       	                                record.setGsdbDescription(String.valueOf(cell.getStringCellValue()));
-      	                                System.out.println(cell.getStringCellValue());
+      	                               // System.out.println(cell.getStringCellValue());
       	
       	                            }
       	                            
       	                          else if (cell.getColumnIndex() == 3) {
       	                          	
     	                                record.setDocCode(String.valueOf(cell.getStringCellValue()));
-    	                                System.out.println(cell.getStringCellValue());
+    	                               // System.out.println(cell.getStringCellValue());
     	                                
     	                            }
     	
     	                        }
     	
     	                  }
-    	                 
-    	              	  WersGsdbRecord finalrecord = new WersGsdbRecord(record.wersPlantCode,record.gsdbCode,record.gsdbDescription,record.docCode);
-    	              	 // wersGsdbTable.getItems().add(finalrecord);
-    	                  System.out.println("Record Added "+ record.wersPlantCode + " "+ record.gsdbCode);
+    	                  
+    	                  
+    	                   data.add(record);
+    	                  
     	                  //wersGsdbTable.getItems().add(record);
-    	                  data.add(finalrecord);
+    	                  System.out.println("Row added");
     	                  System.out.println(data);
     	                }
-    	             // wersGsdbTable.setItems(this.data);
     	          
+    	               
     	            fis.close();
     	
     	 
@@ -373,13 +759,19 @@ public class WersGsdbMappingPanel extends FB4Panel {
 
 
     public static class WersGsdbRecord {
-    	String action;
+    	
     	String wersPlantCode;
         String gsdbCode;
         String gsdbDescription;
         String docCode;
 		
-		private WersGsdbRecord(){}
+		private WersGsdbRecord(){
+			this.wersPlantCode = "";
+        	this.gsdbCode = "";
+        	this.gsdbDescription = "";
+        	this.docCode = "";
+			
+		}
         
         private WersGsdbRecord(String a, String b, String c, String d){
         	this.wersPlantCode = a;
