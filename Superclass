@@ -1,0 +1,98 @@
+
+package com.ford.pd.bom.ui.common.panels;
+
+import java.io.IOException;
+import java.net.URL;
+import java.util.ResourceBundle;
+
+import com.ford.pd.bom.ui.common.abstracts.AbstractFB4Panel;
+import com.ford.pd.bom.ui.security.ScreenConstants.ACCESS_LEVEL;
+import com.ford.pd.bom.ui.session.BOMSession;
+import com.ford.pd.bom.ui.utils.Notification;
+
+import javafx.event.Event;
+import javafx.fxml.FXMLLoader;
+import javafx.fxml.Initializable;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.layout.VBox;
+
+public class FB4Panel extends AbstractFB4Panel implements Initializable {
+    private FXMLLoader fxmlLoader;
+
+    private boolean selected = false;
+    // US329123 - Start
+    public ACCESS_LEVEL userAccessLevel = ACCESS_LEVEL.NO_ACCESS;
+    // US329123 - End
+
+    private Notification notification = null;
+
+    public FB4Panel(final String fxmlFileName) {
+        if (fxmlFileName != null && !fxmlFileName.isEmpty()) {
+            this.fxmlLoader = new FXMLLoader(
+                    FB4Panel.class.getResource(fxmlFileName));
+            this.fxmlLoader.setRoot(this);
+            this.fxmlLoader.setController(this);
+
+            try {
+                this.fxmlLoader.load();
+            } catch (final IOException exception) {
+                throw new RuntimeException(exception);
+            }
+        }
+
+    }
+
+    @Override
+    public void initialize(final URL arg0, final ResourceBundle arg1) {
+        // TODO Auto-generated method stub
+
+    }
+
+    public boolean isSelected() {
+        return this.selected;
+    }
+
+    public void setSelected(final boolean selected) {
+        this.selected = selected;
+    }
+
+    public Node getNoAccessPanel() {
+        final Label accessMessage =
+                new Label("You don't have access to this TAB/Functionality. Please contact your administrator for access.");
+        accessMessage.setStyle("-fx-text-fill: red; -fx-font-weight: bold;");
+        final VBox errorBox = new VBox(10, accessMessage);
+        errorBox.setCenterShape(true);
+        errorBox.setAlignment(Pos.CENTER);
+        return errorBox;
+    }
+
+    public boolean hasEditAccess() {
+        if (this.userAccessLevel.equals(ACCESS_LEVEL.EDIT)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @return Returns the notification.
+     */
+    public Notification getNotification(final BOMSession session) {
+        this.notification = new Notification(session);
+        return this.notification;
+    }
+
+    /**
+     * Closes the dialog in which this action took place
+     */
+    public void closeDialog(final Event event) {
+        ((Node)(event.getSource())).getScene().getWindow().hide();
+    }
+	//Memory Tunning - bala start
+    public void clearContents()
+    {
+    	fxmlLoader = null;
+    }
+//Memory Tunning - bala end
+}
