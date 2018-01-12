@@ -1,0 +1,142 @@
+this.gs2IndicatorColumn
+                .setCellValueFactory(new Callback<TableColumn.CellDataFeatures<ImpactAssesmentVO, String>, ObservableValue<String>>() {
+                    @Override
+                    public ObservableValue<String> call(final CellDataFeatures<ImpactAssesmentVO, String> param) {
+                        final SimpleStringProperty property = new SimpleStringProperty(param.getValue().getGs2s());
+                        return property;
+                    }
+                });
+        this.gs2IndicatorColumn.setCellFactory(gs2NameCellFactory());
+        
+         // Cell factory for GS2
+    private Callback<TableColumn<ImpactAssesmentVO, String>, TableCell<ImpactAssesmentVO, String>> gs2NameCellFactory() {
+        return new Callback<TableColumn<ImpactAssesmentVO, String>, TableCell<ImpactAssesmentVO, String>>() {
+
+            @Override
+            public TableCell<ImpactAssesmentVO, String> call(final TableColumn<ImpactAssesmentVO, String> param) {
+                final TableCell<ImpactAssesmentVO, String> cell = new TableCell<ImpactAssesmentVO, String>() {
+                    @Override
+                    protected void updateItem(final String item, final boolean empty) {
+                        super.updateItem(item, empty);
+                        if (!empty) {
+                            final ImpactAssesmentVO rowImpactVO = CmfBomImpactAlternatePanel.this.getCmfBomImpactTable()
+                                    .getItems()
+                                    .get(getIndex());
+
+                            Label gs2Name = new Label();
+                            final Hyperlink gs2Link = new Hyperlink("Select GS2");
+                            gs2Link.setUnderline(true);
+                            if (null == rowImpactVO.getGs2s() || rowImpactVO.getGs2s().length() == 0) {
+                                gs2Name.setText("");
+                                gs2Link.setText("Select GS2");
+                                // rowImpactVO.setPmt("");
+                            } else {
+
+                                gs2Name.setText(rowImpactVO.getGs2s());
+                                gs2Link.setText(rowImpactVO.getGs2s());
+
+                            }
+
+                            if (!getSelectedAlternative().equals(CmfConstants.OPTION_0)
+                                && (rowImpactVO.getAction().equals(EDIT) || rowImpactVO.getAction().equals(ADD))) {
+                                // When edit or add clicked
+                                setGraphic(gs2Link);
+                            }
+
+                            else {
+                                // For normal row display. Here we have to bring default gs2
+                                // and display
+                                if (rowImpactVO.getGs2s() != null) {
+                                    gs2Name = new Label(rowImpactVO.getGs2s());
+                                }
+
+                                setGraphic(gs2Name);
+                            }
+                            gs2Link.setOnAction(new EventHandler<ActionEvent>() {
+                                @Override
+                                public void handle(final ActionEvent event) {
+                                    final GS2SelectionPanel panel =
+                                            new GS2SelectionPanel(getGs2ListToPanel(), "");
+                                    final FB4CustomDialog customDialog = new FB4CustomDialog("Select a GS2",
+                                            getScene().getWindow(), panel, panel.getSelectGs2());
+
+                                    customDialog.showAndWait();
+                                    if (panel.getSelectedGS2Ref() != null) {
+                                        rowImpactVO.setGs2s(panel.getSelectedGS2Ref().getGs2Description());
+                                        gs2Link.setText(rowImpactVO.getGs2s());
+                                        CmfBomImpactAlternatePanel.this.getCmfBomImpactTable().refresh();
+                                    }
+                                }
+
+                            });
+
+                            setAlignment(Pos.CENTER);
+                            this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                        } else {
+                            setGraphic(null);
+                            setContentDisplay(ContentDisplay.TEXT_ONLY);
+                        }
+                    }
+                };
+                return cell;
+            }
+        };
+    }
+
+    private class TypeCellFactory extends TableCell<ImpactAssesmentVO, String> {
+        @Override
+        protected void updateItem(final String item, final boolean empty) {
+            super.updateItem(item, empty);
+            if (!empty) {
+                final ImpactAssesmentVO rowImpactVO = getCmfBomImpactTable().getItems().get(getIndex());
+                final VBox vb = new VBox(2);
+                final ComboBox<String> typeCombo = new ComboBox<String>();
+                final List<String> dropDownList = new ArrayList<String>();
+                if (rowImpactVO.getControlModel() != null && rowImpactVO.getControlModel().getMetricType() != null) {
+                    if (rowImpactVO.getControlModel().getMetricType().toLowerCase().indexOf("cost") > -1) {
+                        dropDownList.add("Cost");
+                    }
+                    if (rowImpactVO.getControlModel().getMetricType().toLowerCase().indexOf("weight") > -1) {
+                        dropDownList.add("Weight");
+                    }
+                    if (rowImpactVO.getControlModel().getMetricType().toLowerCase().indexOf("tooling") > -1) {
+                        dropDownList.add("Tooling");
+                    }
+                }
+                typeCombo.getItems().addAll(dropDownList);
+                typeCombo.getSelectionModel().select(CmfUtils.firstLetterCaptial(rowImpactVO.getRollupType()));
+                rowImpactVO.setUnit(selectDefaultSelectionForUnitColumn(rowImpactVO));
+                typeCombo.setPromptText(SELECT);
+                final Label type = new Label(CmfUtils.firstLetterCaptial(rowImpactVO.getRollupType()));
+                vb.getChildren().add(type);
+                if (rowImpactVO.getAction().equals(ADD)) {
+                    vb.getChildren().remove(0, vb.getChildren().size());
+                    vb.getChildren().add(typeCombo);
+                    this.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                } else {
+                    // this.setText(CmfUtils.firstLetterCaptial(rowImpactVO.getRollupType()));
+                    // this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+                }
+                this.setAlignment(Pos.CENTER);
+                setGraphic(vb);
+                // US353816 - Start
+                vb.setAlignment(Pos.CENTER_LEFT);
+                // US353816 - End
+                typeCombo.getSelectionModel().selectedItemProperty().addListener(new ChangeListener<String>() {
+                    @Override
+                    public void changed(final ObservableValue<? extends String> observable, final String oldValue,
+                            final String newValue) {
+                        rowImpactVO.setRollupType(newValue);
+                        typeCombo.getSelectionModel().select(rowImpactVO.getRollupType());
+                        rowImpactVO.setUnit(selectDefaultSelectionForUnitColumn(rowImpactVO));
+                        CmfBomImpactAlternatePanel.this.getCmfBomImpactTable().refresh();
+                    }
+                });
+
+            } else {
+                setGraphic(null);
+                // this.setContentDisplay(ContentDisplay.TEXT_ONLY);
+            }
+        }
+
+    }
