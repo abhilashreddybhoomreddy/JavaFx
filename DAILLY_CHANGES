@@ -1,0 +1,7 @@
+book:
+ https://stackoverflow.com/questions/33095166/javafx-resize-components-when-fullscreen
+ 
+ icon in homeController:
+  stage.getIcons().add(new Image(getClass().getResourceAsStream("../resources/bingo.png")));
+ 
+    
