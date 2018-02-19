@@ -1,0 +1,219 @@
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.Arrays;
+
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import com.ford.pd.bom.common.tc.FB4BOMContainer;
+import com.ford.pd.bom.common.tc.FB4GSDBSite;
+import com.ford.pd.bom.domain.data.gsdb.FB4GSDBSupplierDataHolder;
+import com.ford.pd.bom.domain.data.manager.FB4WipstoGSDBMAppingDataHolder;
+import com.ford.pd.bom.ui.common.controls.TableFilterWrapper;
+import com.ford.pd.bom.ui.common.panels.FB4Panel;
+import com.ford.pd.bom.ui.constants.UIConstants;
+import com.ford.pd.bom.ui.session.BOMSession;
+import com.ford.pd.bom.ui.utils.ExportToExcelSrvc;
+
+import javafx.beans.property.SimpleStringProperty;
+import javafx.beans.value.ObservableValue;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
+import javafx.fxml.FXML;
+import javafx.scene.control.Hyperlink;
+import javafx.scene.control.TableColumn;
+import javafx.scene.control.TableColumn.CellDataFeatures;
+import javafx.scene.control.TableView;
+import javafx.util.Callback;
+
+/**
+ * TODO - Place class description here
+ */
+public class WipsToGSDBMapping extends FB4Panel {
+
+    @FXML
+    private TableView<GsdbMappingUI> mappingTable;
+
+    @FXML
+    private Hyperlink exportToExcel;
+
+    private String excelFilePath = "";
+
+    BOMSession session;
+
+    final TableColumn<GsdbMappingUI, String> wipsPlantCode = new TableColumn<>("WIPS Plant Code");
+
+    final TableColumn<GsdbMappingUI, String> gsdbPlantCode = new TableColumn<>("GSDB Code");
+
+    final TableColumn<GsdbMappingUI, String> gsdbPlantName = new TableColumn<>("GSDB Name");
+
+    ObservableList<GsdbMappingUI> mappingData = FXCollections.observableArrayList();
+
+    TableFilterWrapper<GsdbMappingUI> tableFilterWrapper = null;
+
+    public WipsToGSDBMapping(final BOMSession session) {
+        super(UIConstants.FXML_BASE + "WipsToGSDBMapping.fxml");
+        this.session = session;
+        init();
+    }
+
+    @SuppressWarnings("unchecked")
+    private void init() {
+        loadData();
+
+        this.wipsPlantCode
+                .setCellValueFactory(new Callback<TableColumn.CellDataFeatures<GsdbMappingUI, String>, ObservableValue<String>>() {
+
+                    @Override
+                    public ObservableValue<String> call(final CellDataFeatures<GsdbMappingUI, String> param) {
+                        final SimpleStringProperty property =
+                                new SimpleStringProperty(param.getValue().getWipsCode() == null ? "" : param.getValue().getWipsCode());
+
+                        return property;
+                    }
+                });
+        this.wipsPlantCode.setStyle("-fx-alignment: Center;");
+        this.gsdbPlantCode
+                .setCellValueFactory(new Callback<TableColumn.CellDataFeatures<GsdbMappingUI, String>, ObservableValue<String>>() {
+
+                    @Override
+                    public ObservableValue<String> call(final CellDataFeatures<GsdbMappingUI, String> param) {
+                        final SimpleStringProperty property = new SimpleStringProperty(
+                                param.getValue().getGsdbCode() == null ? "" : param.getValue()
+                                        .getGsdbCode());
+
+                        return property;
+                    }
+                });
+        this.gsdbPlantCode.setStyle("-fx-alignment: Center");
+        this.gsdbPlantName
+                .setCellValueFactory(new Callback<TableColumn.CellDataFeatures<GsdbMappingUI, String>, ObservableValue<String>>() {
+
+                    @Override
+                    public ObservableValue<String> call(final CellDataFeatures<GsdbMappingUI, String> param) {
+                        final SimpleStringProperty property =
+                                new SimpleStringProperty(param.getValue().getGsdbName() == null ? "" : param.getValue().getGsdbName());
+
+                        return property;
+                    }
+                });
+        this.gsdbPlantName.setStyle("-fx-alignment:Center;");
+
+        this.mappingTable.getColumns().addAll(this.wipsPlantCode, this.gsdbPlantCode, this.gsdbPlantName);
+        this.mappingTable.setItems(this.mappingData);
+        this.mappingTable.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
+        this.wipsPlantCode.prefWidthProperty()
+                .bind(this.mappingTable.widthProperty().multiply(0.30));
+        this.gsdbPlantCode.prefWidthProperty()
+                .bind(this.mappingTable.widthProperty().multiply(0.30));
+        this.gsdbPlantName.prefWidthProperty()
+                .bind(this.mappingTable.widthProperty().multiply(0.39));
+        this.tableFilterWrapper = new TableFilterWrapper<>(this.mappingTable,
+                Arrays.asList(this.wipsPlantCode, this.gsdbPlantCode, this.gsdbPlantName), this.session);
+        tableFilterWrapper.setMasterData(mappingData);
+        tableFilterWrapper.applyFilter();
+        exportToExcelTable();
+    }
+
+    private void loadData() {
+        try {
+            loadData(getExcelFilePath());
+        } catch (final Exception e) {
+            e.getMessage();
+        }
+
+    }
+
+    private void loadData(final String excelPath) throws Exception {
+        final FB4WipstoGSDBMAppingDataHolder progdata = FB4WipstoGSDBMAppingDataHolder.getInstance();
+        final FB4BOMContainer<String> data = progdata.getWipstoGsdbContainer();
+        System.out.println(data.keySet());
+        for (final String gsdbcode : data.keySet()) {
+            final GsdbMappingUI wipsgsdbData = new GsdbMappingUI();
+            String wipsPC = "";
+            wipsPC = data.get(gsdbcode);
+            final FB4GSDBSite gsdbSite =
+                    FB4GSDBSupplierDataHolder.getInstance().getLocationAndSupplierName(gsdbcode);
+            wipsgsdbData.setGsdbCode(gsdbcode);
+            wipsgsdbData.setWipsCode(wipsPC);
+            if (gsdbSite != null)
+                wipsgsdbData.setGsdbName(gsdbSite.getSiteName());
+            if (wipsgsdbData.getGsdbCode() != null && wipsgsdbData.getGsdbName() != null &&
+                wipsgsdbData.getWipsCode() != null)
+                this.mappingData.add(wipsgsdbData);
+        }
+    }
+
+    private void exportToExcelTable() {
+        this.exportToExcel.setOnAction(new EventHandler<ActionEvent>() {
+            @Override
+            public void handle(final ActionEvent event) {
+                final TableView<GsdbMappingUI> excelTable = new TableView<>();
+                excelTable.getColumns().addAll(WipsToGSDBMapping.this.mappingTable.getColumns());
+                excelTable.setItems(WipsToGSDBMapping.this.mappingData);
+                final ExportToExcelSrvc<GsdbMappingUI> exportExcelSrvc = new ExportToExcelSrvc<>(UIConstants.WIPS_GSDB_XLS_FILE,
+                        UIConstants.WIPS_GSDB_XLS_SHEET_TITLE, UIConstants.WIPS_GSDB_XLS_SHEET, false);
+                exportExcelSrvc.exportToExcel(excelTable);
+            }
+        });
+    }
+
+    private Workbook getWorkbook(final FileInputStream inputStream,
+            final String excelFilePath)
+            throws IOException {
+        Workbook workbook = null;
+
+        if (excelFilePath.endsWith("xlsx")) {
+            workbook = new XSSFWorkbook(inputStream);
+        } else if (excelFilePath.endsWith("xls")) {
+            workbook = new HSSFWorkbook(inputStream);
+        }
+        return workbook;
+    }
+
+    static class GsdbMappingUI {
+        String gsdbName;
+        String wipsCode;
+        String gsdbCode;
+
+        public String getWipsCode() {
+            return this.wipsCode;
+        }
+
+        public void setWipsCode(final String wipsCode) {
+
+            this.wipsCode = wipsCode;
+        }
+
+        public String getGsdbCode() {
+            return this.gsdbCode;
+        }
+
+        public void setGsdbCode(final String gsdbCode) {
+
+            this.gsdbCode = gsdbCode;
+        }
+
+        public String getGsdbName() {
+            return this.gsdbName;
+        }
+
+        public void setGsdbName(final String gsdbName) {
+
+            this.gsdbName = gsdbName;
+        }
+    }
+
+    public String getExcelFilePath() {
+        return this.excelFilePath;
+    }
+
+    public void setExcelFilePath(final String excelFilePath) {
+
+        this.excelFilePath = excelFilePath;
+    }
+
+}
